@@ -798,13 +798,7 @@ func (b *Bot) GamePrepare(botAPI *tgbotapi.BotAPI) {
 		replyToMany(b.players, reply, botAPI, mainKeyboard)
 	}
 
-	if err := b.stats.Put("prepare", "true"); err != nil {
-		Error.Printf("Can't start preparation stage. Can't set prepare to true\n\t%s", err)
-		replyCritical()
-		return
-	}
-
-	if b.stats.Get("ready") == "false" {
+	if b.stats.Get("ready") == "false" && b.stats.Get("game") == "false" {
 		for _, user := range lastTicketDateSorted {
 			if user.GetHasTicket() == true {
 				userID := user.GetUserID()
@@ -1138,6 +1132,9 @@ func (b *Bot) Play(botAPI *tgbotapi.BotAPI) {
 
 			userWinner.SetLastWonAmount(userWinner.GetLastWonAmount() + b.opts.ticketPrice)
 			if len(b.players) == 1 {
+				Info.Printf("Final winner:\n\tUserID: %d\n\tUsername: %s\n\tAmount: %f",
+					userWinner.GetUserID(), userWinner.GetName(),
+					userWinner.GetLastWonAmount()+b.opts.ticketPrice)
 				reply = fmt.Sprintf("You won the final prize \U0001f389 "+
 					"Won amount: *%f BCH* plus extra coins \U0001f381", userWinner.GetLastWonAmount())
 				if b.opts.donationAddress != "" {
@@ -1149,14 +1146,15 @@ func (b *Bot) Play(botAPI *tgbotapi.BotAPI) {
 					Error.Printf("Couldn't pay to user:\n\tUserID: %d\n\tUsername: %s\n\t%s",
 						userWinner.GetUserID(), userWinner.GetName(), err)
 				}
-				Info.Printf("Final winner:\n\tUserID: %d\n\tUsername: %s\n\tAmount: %f",
-					userWinner.GetUserID(), userWinner.GetName(), userWinner.GetLastWonAmount())
+				userWinner.SetTotalWonAmount(userWinner.GetTotalWonAmount() + 2*b.opts.ticketPrice)
 			} else {
+				Info.Printf("Winner:\n\tUserID: %d\n\tUsername: %s\n\tAmount: %f",
+					userWinner.GetUserID(), userWinner.GetName(), userWinner.GetLastWonAmount())
 				reply = fmt.Sprintf("You win! Won amount: *%f BCH* \U0001f4b6",
 					userWinner.GetLastWonAmount())
 				replyTo(winner, reply, botAPI, gameKeyboard)
-				Info.Printf("Winner:\n\tUserID: %d\n\tUsername: %s\n\tAmount: %f",
-					userWinner.GetUserID(), userWinner.GetName(), userWinner.GetLastWonAmount())
+				userWinner.SetTotalWonAmount(userWinner.GetTotalWonAmount() +
+					b.opts.ticketPrice)
 			}
 
 			reply = fmt.Sprintf("You lose! Won amount: *%f BCH* \U0001f4b6",
@@ -1166,6 +1164,9 @@ func (b *Bot) Play(botAPI *tgbotapi.BotAPI) {
 					b.opts.bankWalletPath, b.opts.testnet); err != nil {
 					Error.Printf("Couldn't pay to user:\n\tUserID: %d\n\tUsername: %s\n\t%s",
 						userLoser.GetUserID(), userLoser.GetName(), err)
+				} else {
+					Info.Printf("Paid successfully:\n\tUserID: %d\n\tUsername: %s",
+						userLoser.GetUserID(), userLoser.GetName())
 				}
 				if userLoser.GetLastWonAmount() > b.opts.ticketPrice*3 &&
 					b.opts.donationAddress != "" {
@@ -1177,8 +1178,6 @@ func (b *Bot) Play(botAPI *tgbotapi.BotAPI) {
 			Info.Printf("Loser:\n\tUserID: %d\n\tUsername: %s\n\tAmount: %f",
 				userLoser.GetUserID(), userLoser.GetName(), userLoser.GetLastWonAmount())
 
-			userWinner.SetTotalWonAmount(userWinner.GetTotalWonAmount() +
-				userWinner.GetLastWonAmount())
 			if err := b.users.Put(winner, userWinner); err != nil {
 				Error.Printf("Can't update winner after the round\n\t%s", err)
 			}

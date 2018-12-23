@@ -4,8 +4,8 @@ import (
 	"io/ioutil"
 	"os"
 
+	"github.com/FromZeus/rpsbot/rps"
 	"github.com/robfig/cron"
-	"github.com/rps-bot/rpsbot/rps"
 	"gopkg.in/alecthomas/kingpin.v2"
 )
 
