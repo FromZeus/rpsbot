@@ -126,6 +126,7 @@ func (m UMap) BatchDelete(uid int64) {
 // BatchWrite performs write of the batch to the database.
 func (m UMap) BatchWrite() error {
 	err := m.db.Write(m.batch, nil)
+	m.batch.Reset()
 
 	return err
 }

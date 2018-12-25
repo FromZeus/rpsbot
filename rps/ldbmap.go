@@ -104,6 +104,7 @@ func (m LDBMap) BatchDelete(key string) {
 // BatchWrite performs write of the batch to the database.
 func (m LDBMap) BatchWrite() error {
 	err := m.db.Write(m.batch, nil)
+	m.batch.Reset()
 
 	return err
 }
