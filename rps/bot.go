@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,7 +14,7 @@ import (
 	"github.com/robfig/cron"
 )
 
-var payChannels, clientOpTimeout, clientModifyChannels = NewSynMap(), NewSynMap(), NewSynMap()
+var payChannels, clientOpTimeout, modifyChannels = NewSynMap(), NewSynMap(), NewSynMap()
 
 type compare func(interface{}, interface{}) bool
 
@@ -145,6 +146,25 @@ func watchClientModify(chatID int64, channels *SynMap, opts *Options) string {
 	}
 }
 
+func (b *Bot) firstTimeInit() error {
+	if !b.stats.Exist("game") {
+		b.stats.BatchPut("game", "false")
+	}
+	if !b.stats.Exist("ready") {
+		b.stats.BatchPut("ready", "false")
+	}
+	if !b.stats.Exist("sales") {
+		b.stats.BatchPut("sales", "true")
+	}
+	if !b.stats.Exist("totalsold") {
+		b.stats.BatchPut("totalsold", "0")
+	}
+	if !b.stats.Exist("currentlysold") {
+		b.stats.BatchPut("currentlysold", "0")
+	}
+	return b.stats.BatchWrite()
+}
+
 ////////////****************************************************////////////
 ////////////***************** Bot methods start ****************////////////
 ////////////****************************************************////////////
@@ -224,6 +244,12 @@ func (b *Bot) BuyTicket(update tgbotapi.Update, botAPI *tgbotapi.BotAPI) {
 		return
 	}
 
+	if b.stats.Get("sales") == "false" {
+		reply = "Sorry, but tickets sale is stopped for now. Please try again a little bit later."
+		replyTo(chatID, reply, botAPI, mainKeyboard)
+		return
+	}
+
 	address, url, err := CreateRequest(b.opts.ticketPrice, b.opts.cashboxWalletPath, b.opts.testnet)
 	if err != nil {
 		Error.Printf("Can't create a new request:\n\t%s", err)
@@ -259,8 +285,8 @@ func (b *Bot) Reset(update tgbotapi.Update, botAPI *tgbotapi.BotAPI) {
 
 	replyTo(chatID, "Reseting in progress, please wait up to 15 seconds.", botAPI, mainKeyboard)
 
-	if clientModifyChannels.Exist(chatID) {
-		ch := clientModifyChannels.Get(chatID).(chan string)
+	if modifyChannels.Exist(chatID) {
+		ch := modifyChannels.Get(chatID).(chan string)
 		ch <- ""
 	}
 
@@ -419,7 +445,7 @@ func (b *Bot) ChangeName(update tgbotapi.Update, botAPI *tgbotapi.BotAPI) {
 	}
 
 	if b.users.Exist(chatID) && b.users.Get(chatID).GetSubscribed() {
-		if clientModifyChannels.Exist(chatID) {
+		if modifyChannels.Exist(chatID) {
 			reply = "You're already in process of modifying your data. You can reset it by /reset."
 			replyTo(chatID, reply, botAPI, mainKeyboard)
 			return
@@ -428,9 +454,9 @@ func (b *Bot) ChangeName(update tgbotapi.Update, botAPI *tgbotapi.BotAPI) {
 		replyTo(chatID, reply, botAPI, mainKeyboard)
 
 		ch := make(chan string)
-		clientModifyChannels.Put(chatID, ch)
+		modifyChannels.Put(chatID, ch)
 
-		name := watchClientModify(chatID, &clientModifyChannels, b.opts)
+		name := watchClientModify(chatID, &modifyChannels, b.opts)
 		if name == "" {
 			reply = "Request is expired or reset."
 			replyTo(chatID, reply, botAPI, mainKeyboard)
@@ -474,7 +500,7 @@ func (b *Bot) ChangeWalletAddress(update tgbotapi.Update, botAPI *tgbotapi.BotAP
 	chatID := update.Message.Chat.ID
 
 	if b.users.Exist(chatID) && b.users.Get(chatID).GetSubscribed() {
-		if clientModifyChannels.Exist(chatID) {
+		if modifyChannels.Exist(chatID) {
 			reply = "You're already in process of modifying your data. You can reset it by /reset."
 			replyTo(chatID, reply, botAPI, mainKeyboard)
 			return
@@ -483,9 +509,9 @@ func (b *Bot) ChangeWalletAddress(update tgbotapi.Update, botAPI *tgbotapi.BotAP
 		replyTo(chatID, reply, botAPI, mainKeyboard)
 
 		ch := make(chan string)
-		clientModifyChannels.Put(chatID, ch)
+		modifyChannels.Put(chatID, ch)
 
-		wallet := watchClientModify(chatID, &clientModifyChannels, b.opts)
+		wallet := watchClientModify(chatID, &modifyChannels, b.opts)
 		if wallet == "" {
 			reply = "Request is expired or reset."
 			replyTo(chatID, reply, botAPI, mainKeyboard)
@@ -563,11 +589,40 @@ func (b *Bot) NoUnsubscribe(update tgbotapi.Update, botAPI *tgbotapi.BotAPI) {
 ////////////************ Wallet operations start ***************////////////
 ////////////****************************************************////////////
 
+// GetTotalSoldTickets shows total amount of sold tickets.
+func GetTotalSoldTickets(stats *LDBMap) (uint64, error) {
+	sold, err := strconv.ParseUint(stats.Get("totalsold"), 10, 64)
+	if err != nil {
+		return 0, err
+	}
+
+	return sold, nil
+}
+
+// SetTotalSoldTickets sets total amount of sold tickets.
+func SetTotalSoldTickets(sold uint64, stats *LDBMap) error {
+	return stats.Put("totalsold", strconv.FormatUint(sold, 10))
+}
+
+// GetCurrentlySoldTickets shows current game amount of sold tickets.
+func GetCurrentlySoldTickets(stats *LDBMap) (uint64, error) {
+	sold, err := strconv.ParseUint(stats.Get("currentlysold"), 10, 64)
+	if err != nil {
+		return 0, err
+	}
+
+	return sold, nil
+}
+
+// SetCurrentlySoldTickets sets current game amount of sold tickets.
+func SetCurrentlySoldTickets(sold uint64, stats *LDBMap) error {
+	return stats.Put("currentlysold", strconv.FormatUint(sold, 10))
+}
+
 func (b *Bot) cleanupProcessBuyTicket(
 	chatID int64,
 	requestID string,
 	channels *SynMap,
-	botAPI *tgbotapi.BotAPI,
 ) {
 	Verbose.Printf("Cleaning up request for:\n\tChatID: %d\n\tRequestID: %s",
 		chatID, requestID)
@@ -596,7 +651,7 @@ func (b *Bot) processBuyTicket(
 			chatID, requestID, err)
 		reply = "Can't process your request, please try again."
 		replyTo(chatID, reply, botAPI, mainKeyboard)
-		b.cleanupProcessBuyTicket(chatID, requestID, channels, botAPI)
+		b.cleanupProcessBuyTicket(chatID, requestID, channels)
 		return
 	}
 	if paymentStatus == 0 {
@@ -611,15 +666,30 @@ func (b *Bot) processBuyTicket(
 				chatID, requestID)
 		}
 
+		currentlySold, err := GetCurrentlySoldTickets(b.stats)
+		if err != nil {
+			Error.Printf("Can't get currently sold tickets\n\t%s", err)
+		}
+		if err := SetCurrentlySoldTickets(currentlySold+1, b.stats); err != nil {
+			Error.Printf("Can't set currently sold tickets\n\t%s", err)
+		}
+		totalSold, err := GetTotalSoldTickets(b.stats)
+		if err != nil {
+			Error.Printf("Can't get total sold tickets\n\t%s", err)
+		}
+		if err := SetTotalSoldTickets(totalSold+1, b.stats); err != nil {
+			Error.Printf("Can't set total sold tickets\n\t%s", err)
+		}
+
 		reply = "You've got a ticket \U0001f39f To check current game schedule type /status."
 		replyTo(chatID, reply, botAPI, mainKeyboard)
-		b.cleanupProcessBuyTicket(chatID, requestID, channels, botAPI)
+		b.cleanupProcessBuyTicket(chatID, requestID, channels)
 	} else if paymentStatus == 1 {
 		Verbose.Printf("Time is up for:\n\tChatID: %d\n\tRequestID: %s",
 			chatID, requestID)
 		reply = "Time is up, would you like to try to /buyticket again?"
 		replyTo(chatID, reply, botAPI, mainKeyboard)
-		b.cleanupProcessBuyTicket(chatID, requestID, channels, botAPI)
+		b.cleanupProcessBuyTicket(chatID, requestID, channels)
 	} else {
 		Verbose.Printf("Transaction has been reset:\n\tChatID: %d\n\tequestID:%s",
 			chatID, requestID)
@@ -857,6 +927,11 @@ func (b *Bot) GamePrepare(botAPI *tgbotapi.BotAPI) {
 			Warning.Printf("Can't clear requests of the bank wallet:\n\t%s", err)
 		} else {
 			Verbose.Printf("Requests of the bank wallet cleared successfully.")
+		}
+
+		// Reset currently sold number
+		if err := SetCurrentlySoldTickets(0, b.stats); err != nil {
+			Error.Printf("Can't set currently sold tickets\n\t%s", err)
 		}
 
 		// Set ready status to true in case of server shutdown before the game start
@@ -1216,6 +1291,137 @@ func (b *Bot) Play(botAPI *tgbotapi.BotAPI) {
 ////////////*************** Game methods end *******************////////////
 ////////////****************************************************////////////
 
+////////////****************************************************////////////
+////////////************** Admin methods start *****************////////////
+////////////****************************************************////////////
+
+// StopSale stops sale of tickets after certain threshold.
+func (b *Bot) StopSale(
+	number uint64,
+	password string,
+	update tgbotapi.Update,
+	botAPI *tgbotapi.BotAPI,
+) {
+	reply := ""
+	chatID := update.Message.Chat.ID
+
+	if password != b.opts.password {
+		Warning.Printf("Wrong password:\n\tUserID %d", chatID)
+		reply = "Wrong password!"
+		replyTo(chatID, reply, botAPI, mainKeyboard)
+		return
+	}
+
+	ch := make(chan string)
+	modifyChannels.Put(chatID, ch)
+	reply = "Stop sale request is initiated."
+	Info.Printf("Stop sale request is initiated")
+	replyTo(chatID, reply, botAPI, mainKeyboard)
+
+	for {
+		select {
+		case _, ok := <-ch:
+			if ok {
+				Verbose.Printf("Watching has been reset:\n\tChatID: %d",
+					chatID)
+				reply = "Stop sale request has been revoked."
+				replyTo(chatID, reply, botAPI, mainKeyboard)
+				close(ch)
+				modifyChannels.Delete(chatID)
+				return
+			}
+		default:
+			sold, err := GetCurrentlySoldTickets(b.stats)
+			if err != nil {
+				Warning.Printf("Can't get currently sold tickets\n\t%s", err)
+				continue
+			}
+			if sold == number {
+				if err := b.stats.Put("sales", "false"); err != nil {
+					Error.Printf("Can't set sales to false\n\t%s", err)
+					reply = "Something went wrong while setting sales to false."
+					replyTo(chatID, reply, botAPI, mainKeyboard)
+					return
+				}
+				Info.Printf("Sales has been stopped")
+				reply := "Sales has been stopped."
+				replyTo(chatID, reply, botAPI, mainKeyboard)
+				close(ch)
+				modifyChannels.Delete(chatID)
+				goto revoke
+			} else if sold > number {
+				reply = fmt.Sprintf("Number of sold tickets is bigger than "+
+					"you've specified\n\tNumber: %d",
+					sold)
+				Warning.Printf(reply)
+				replyTo(chatID, reply, botAPI, mainKeyboard)
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+
+revoke:
+	reply = "*WARNING: Your transaction has been reset! Don't try to pay for ticket please!*"
+	for _userID, _requestID := range b.requests.Iterate() {
+		userID, _ := strconv.ParseInt(_userID, 10, 64)
+		b.cleanupProcessBuyTicket(userID, _requestID, &payChannels)
+		replyTo(userID, reply, botAPI, mainKeyboard)
+	}
+}
+
+// StartSale starts sale of tickets with specified price.
+func (b *Bot) StartSale(
+	price float64,
+	password string,
+	update tgbotapi.Update,
+	botAPI *tgbotapi.BotAPI,
+) {
+	reply := ""
+	chatID := update.Message.Chat.ID
+
+	if password != b.opts.password {
+		Warning.Printf("Wrong password:\n\tUserID %d", chatID)
+		reply = "Wrong password!"
+		replyTo(chatID, reply, botAPI, mainKeyboard)
+		return
+	}
+
+	if err := b.stats.Put("sales", "true"); err != nil {
+		Error.Printf("Can't set sales to true\n\t%s", err)
+		reply = "Something went wrong while setting sales to true."
+		replyTo(chatID, reply, botAPI, mainKeyboard)
+		return
+	}
+
+	b.opts.ticketPrice = price
+	reply = "Sales has been started."
+	Info.Printf("Sales has been started")
+	replyTo(chatID, reply, botAPI, mainKeyboard)
+}
+
+// ShowStats shows metrics
+func (b *Bot) ShowStats(password string, update tgbotapi.Update, botAPI *tgbotapi.BotAPI) {
+	reply := ""
+	chatID := update.Message.Chat.ID
+
+	if password != b.opts.password {
+		Warning.Printf("Wrong password:\n\tUserID %d", chatID)
+		reply = "Wrong password!"
+		replyTo(chatID, reply, botAPI, mainKeyboard)
+		return
+	}
+
+	for k, v := range b.stats.Iterate() {
+		reply += fmt.Sprintf("*%s: %s*\n", k, v)
+	}
+	replyTo(chatID, reply, botAPI, mainKeyboard)
+}
+
+////////////****************************************************////////////
+////////////*************** Admin methods end ******************////////////
+////////////****************************************************////////////
+
 // Start starts the bot.
 func (b *Bot) Start() {
 	botAPI, err := tgbotapi.NewBotAPI(b.token)
@@ -1257,6 +1463,12 @@ func (b *Bot) Start() {
 	defer b.stats.Close()
 	if b.stats.Get("game") == "true" || b.stats.Get("ready") == "true" {
 		b.GameRestore(botAPI)
+	}
+
+	// First time launch initialization
+	if err := b.firstTimeInit(); err != nil {
+		Error.Printf("Can't do initialization of first launch.")
+		return
 	}
 
 	u := tgbotapi.NewUpdate(0)
@@ -1326,9 +1538,55 @@ func (b *Bot) Start() {
 			case "/help", "help", "Help", "\U00002753 Help":
 				go b.Welcome(update, botAPI)
 			default:
-				if clientModifyChannels.Exist(chatID) {
-					ch := clientModifyChannels.Get(chatID).(chan string)
+				if modifyChannels.Exist(chatID) {
+					ch := modifyChannels.Get(chatID).(chan string)
 					ch <- update.Message.Text
+					continue
+				}
+
+				args := []string{}
+				numberOfArguments := func(n int) bool {
+					if len(args) != n {
+						reply := "Wrong number of arguments."
+						replyTo(chatID, reply, botAPI, mainKeyboard)
+						return false
+					}
+					return true
+				}
+				if strings.HasPrefix(update.Message.Text, "/stopsale") {
+					args = strings.Split(update.Message.Text, " ")
+					if !numberOfArguments(3) {
+						continue
+					}
+					number, err := strconv.ParseUint(args[1], 10, 64)
+					if err != nil {
+						Error.Printf("Can't parse number argument\n\t%s", err)
+						reply := "Can't parse number argument, try again."
+						replyTo(chatID, reply, botAPI, mainKeyboard)
+						return
+					}
+					go b.StopSale(number, args[2], update, botAPI)
+				}
+				if strings.HasPrefix(update.Message.Text, "/startsale") {
+					args = strings.Split(update.Message.Text, " ")
+					if !numberOfArguments(3) {
+						continue
+					}
+					price, err := strconv.ParseFloat(args[1], 64)
+					if err != nil {
+						Error.Printf("Can't parse price argument\n\t%s", err)
+						reply := "Can't parse price argument, try again."
+						replyTo(chatID, reply, botAPI, mainKeyboard)
+						return
+					}
+					go b.StartSale(price, args[2], update, botAPI)
+				}
+				if strings.HasPrefix(update.Message.Text, "/stats") {
+					args = strings.Split(update.Message.Text, " ")
+					if !numberOfArguments(2) {
+						continue
+					}
+					go b.ShowStats(args[1], update, botAPI)
 				}
 			}
 		}

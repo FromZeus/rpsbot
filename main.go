@@ -62,6 +62,10 @@ var (
 		"bankWalletPath",
 		"Path to the \"bank\" wallet.",
 	).Default("~/.electron-cash/wallets/bank_wallet").String()
+	password = kingpin.Flag(
+		"password",
+		"Admin password.",
+	).String()
 	verbose = kingpin.Flag(
 		"verbose",
 		"Verbose logging mode.",
@@ -88,6 +92,7 @@ func main() {
 		*dbPath,
 		*cashboxWalletPath,
 		*bankWalletPath,
+		*password,
 	)
 
 	if *verbose {

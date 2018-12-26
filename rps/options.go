@@ -15,6 +15,7 @@ type Options struct {
 	dbPath            string
 	cashboxWalletPath string
 	bankWalletPath    string
+	password          string
 }
 
 // NewOptions creates an object of NewOptions structure.
@@ -32,9 +33,10 @@ func NewOptions(
 	dbPath string,
 	cashboxWalletPath string,
 	bankWalletPath string,
+	password string,
 ) Options {
 	return Options{
-		capacity, timeout, opTimeout, modifyTime, roundTime, payTime, schedule,
-		ticketPrice, testnet, donationAddress, dbPath, cashboxWalletPath, bankWalletPath,
+		capacity, timeout, opTimeout, modifyTime, roundTime, payTime, schedule, ticketPrice,
+		testnet, donationAddress, dbPath, cashboxWalletPath, bankWalletPath, password,
 	}
 }
