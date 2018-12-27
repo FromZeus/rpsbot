@@ -395,7 +395,7 @@ func (b *Bot) Status(update tgbotapi.Update, botAPI *tgbotapi.BotAPI) {
 	reply = fmt.Sprintf("_%s_ (_%d_)\n", user.GetName(), user.GetUserID())
 
 	reply += fmt.Sprintf(
-		"\n\U0001f48e Ticket price: *%0.3f BTH*\n\U0001f551 Next game launch: *%s*",
+		"\n\U0001f48e Ticket price: *%0.3f BCH*\n\U0001f551 Next game launch: *%s*",
 		b.opts.ticketPrice,
 		b.crn.Entries()[0].Next.Format(time.RFC1123),
 	)
