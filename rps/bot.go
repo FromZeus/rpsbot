@@ -1283,7 +1283,7 @@ func (b *Bot) Play(botAPI *tgbotapi.BotAPI) {
 	b.GameReset(botAPI)
 	*b.leaderboard = []*User{}
 	leaderboard := formLeaderboard(b.users)
-	for i := 0; i < 10; i++ {
+	for i := 0; i < Min(10, len(leaderboard)); i++ {
 		*b.leaderboard = append(*b.leaderboard, leaderboard[i])
 	}
 }
@@ -1486,7 +1486,7 @@ func (b *Bot) Start() {
 	// From leaderboard
 	*b.leaderboard = []*User{}
 	leaderboard := formLeaderboard(b.users)
-	for i := 0; i < 10; i++ {
+	for i := 0; i < Min(10, len(leaderboard)); i++ {
 		*b.leaderboard = append(*b.leaderboard, leaderboard[i])
 	}
 
